@@ -1,7 +1,7 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use toml::{self, Value};
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let cmd = clap::Command::new("constcodegen")
         .bin_name("constcodegen")
         .subcommand_required(true)
@@ -13,6 +13,13 @@ fn main() -> anyhow::Result<()> {
                         .value_parser(clap::builder::NonEmptyStringValueParser::new())
                         .action(clap::ArgAction::Set)
                         .default_value("js"),
+                )
+                .arg(
+                    clap::Arg::new("root-dir")
+                        .long("root-dir")
+                        .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                        .action(clap::ArgAction::Set)
+                        .default_value("."),
                 )
                 .arg(clap::Arg::new("input").required(true)),
         );
@@ -27,10 +34,14 @@ fn main() -> anyhow::Result<()> {
                 Some(v) if v == "rust-single" => {
                     generate(input, &mut RustOneFile::new(Box::new(std::io::stdout())))
                 }
-                Some(v) if v == "rust" => generate(
-                    input,
-                    &mut RustMultiFile::new(std::path::Path::new(".").canonicalize()?),
-                ),
+                Some(v) if v == "rust" => {
+                    let root_path = create_and_get_root_path(matches)?;
+                    generate(input, &mut RustMultiFile::new(root_path))
+                }
+                Some(v) if v == "js" => {
+                    let root_path = create_and_get_root_path(matches)?;
+                    generate(input, &mut JsMultiFile::new(root_path))
+                }
                 Some(v) if v == "js-single" => {
                     generate(input, &mut JsOneFile::new(Box::new(std::io::stdout())))
                 }
@@ -42,8 +53,18 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+fn create_and_get_root_path(matches: &clap::ArgMatches) -> Result<std::path::PathBuf> {
+    let default_raw_path = ".".into();
+    let raw_path = matches
+        .get_one::<String>("root-dir")
+        .unwrap_or(&default_raw_path);
+    let root_path = std::path::Path::new(raw_path).to_path_buf();
+    std::fs::create_dir_all(root_path.clone())?;
+    Ok(root_path)
+}
+
 trait CodeGen {
-    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> anyhow::Result<()>;
+    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> Result<()>;
 }
 
 struct RustOneFile {
@@ -57,7 +78,7 @@ impl RustOneFile {
 }
 
 impl CodeGen for RustOneFile {
-    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> anyhow::Result<()> {
+    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> Result<()> {
         writeln!(self.writer, "mod {} {{", name)?;
         generate_rust_mod(doc, "    ", &mut *self.writer)?;
         writeln!(self.writer, "}}\n")?;
@@ -76,9 +97,9 @@ impl JsOneFile {
 }
 
 impl CodeGen for JsOneFile {
-    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> anyhow::Result<()> {
+    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> Result<()> {
         writeln!(self.writer, "// {}", name)?;
-        let prefix = name.to_string().to_uppercase();
+        let prefix = format!("{}_", name.to_string().to_uppercase());
         generate_js_mod(doc, &prefix, &mut *self.writer)?;
         writeln!(self.writer, "\n")?;
         Ok(())
@@ -96,7 +117,7 @@ impl RustMultiFile {
 }
 
 impl CodeGen for RustMultiFile {
-    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> anyhow::Result<()> {
+    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> Result<()> {
         let path = self.root_path.join(format!("{}.rs", name));
         let mut writer = std::fs::OpenOptions::new()
             .write(true)
@@ -107,7 +128,29 @@ impl CodeGen for RustMultiFile {
     }
 }
 
-fn generate(path: &str, code_gen: &mut impl CodeGen) -> anyhow::Result<()> {
+struct JsMultiFile {
+    root_path: std::path::PathBuf,
+}
+
+impl JsMultiFile {
+    pub fn new(root_path: std::path::PathBuf) -> Self {
+        Self { root_path }
+    }
+}
+
+impl CodeGen for JsMultiFile {
+    fn generate(&mut self, name: &str, doc: &toml::value::Table) -> Result<()> {
+        let path = self.root_path.join(format!("{}.js", name));
+        let mut writer = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path)?;
+        generate_js_mod(doc, "", &mut writer)?;
+        Ok(())
+    }
+}
+
+fn generate(path: &str, code_gen: &mut impl CodeGen) -> Result<()> {
     let toml_string = std::fs::read_to_string(path)?;
     let value: Value = toml::from_str(&toml_string)?;
     let doc = value
@@ -129,9 +172,9 @@ fn generate_js_mod(
     table: &toml::value::Table,
     prefix: &str,
     writer: &mut dyn std::io::Write,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     for (name, value) in table {
-        writeln!(writer, "const {}_{} = {};", prefix, name, value)?;
+        writeln!(writer, "export const {}{} = {};", prefix, name, value)?;
     }
 
     Ok(())
@@ -141,7 +184,7 @@ fn generate_rust_mod(
     table: &toml::value::Table,
     indent: &str,
     writer: &mut dyn std::io::Write,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     for (name, value) in table {
         writeln!(
             writer,
