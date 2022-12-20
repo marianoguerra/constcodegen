@@ -1,0 +1,11 @@
+
+[foo]
+
+NS = "Foo"
+INTEGER = 42
+DECIMAL = 1.5
+LOGIC = true
+
+[http]
+
+NS = "HTTP"
