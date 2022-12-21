@@ -122,6 +122,7 @@ impl CodeGen for RustMultiFile {
         let mut writer = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(path)?;
         generate_rust_mod(doc, "", &mut writer)?;
         Ok(())
