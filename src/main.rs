@@ -185,7 +185,7 @@ fn generate_rust_mod(
     indent: &str,
     writer: &mut dyn std::io::Write,
 ) -> Result<()> {
-    writeln!(writer, "#[allow(dead_code)]")?;
+    writeln!(writer, "#![allow(dead_code)]")?;
     for (name, value) in table {
         writeln!(
             writer,
