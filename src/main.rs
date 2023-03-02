@@ -122,7 +122,6 @@ impl CodeGen for RustMultiFile {
         let mut writer = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(true)
             .open(path)?;
         generate_rust_mod(doc, "", &mut writer)?;
         Ok(())
@@ -186,6 +185,7 @@ fn generate_rust_mod(
     indent: &str,
     writer: &mut dyn std::io::Write,
 ) -> Result<()> {
+    writeln!(writer, "#[allow(dead_code)]")?;
     for (name, value) in table {
         writeln!(
             writer,
